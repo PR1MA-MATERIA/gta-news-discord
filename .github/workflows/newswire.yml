@@ -23,6 +23,14 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: デバッグ
+        run: |
+          python debug.py
+          echo "===== HTML BEGIN ====="
+          head -c 10000 rockstar.html
+          echo ""
+          echo "===== HTML END ====="
+          
       - name: Newswireをチェック
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

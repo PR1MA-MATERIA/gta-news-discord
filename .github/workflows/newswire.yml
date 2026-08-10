@@ -41,14 +41,15 @@ jobs:
             exit 0
           fi
 
-          if git diff --quiet -- last_posted.json; then
-            echo "状態に変更はありません。"
-            exit 0
-          fi
-
           git config user.name "GTA News Bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add last_posted.json
+
+          if git diff --cached --quiet; then
+            echo "状態に変更はありません。"
+            exit 0
+          fi
+
           git commit -m "Update Newswire state"
           git push

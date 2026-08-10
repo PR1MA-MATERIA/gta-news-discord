@@ -3,6 +3,7 @@ name: GTA Newswire
 on:
   schedule:
     - cron: "*/30 * * * *"
+
   workflow_dispatch:
 
 permissions:
@@ -13,23 +14,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: リポジトリを取得
         uses: actions/checkout@v4
 
       - name: Pythonをセットアップ
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.13"
 
       - name: Newswireをチェック
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python newswire.py
+        run: |
+          python newswire.py
 
       - name: 投稿状態を保存
         run: |
-          if git diff --quiet last_posted.json; then
-            echo "状態に変更はありません"
+
+          if [ ! -f last_posted.json ]; then
+            echo "last_posted.jsonが存在しないため保存処理をスキップします。"
+            exit 0
+          fi
+
+          if git diff --quiet -- last_posted.json; then
+            echo "状態に変更はありません。"
             exit 0
           fi
 

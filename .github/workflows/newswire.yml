@@ -1,3 +1,4 @@
+```yaml
 name: GTA Newswire
 
 on:
@@ -14,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: リポジトリを取得
         uses: actions/checkout@v4
 
@@ -22,6 +22,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Playwrightをセットアップ
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install --with-deps chromium
 
       - name: Newswireをチェック
         env:
@@ -31,7 +37,6 @@ jobs:
 
       - name: 投稿状態を保存
         run: |
-
           if [ ! -f last_posted.json ]; then
             echo "last_posted.jsonが存在しないため保存処理をスキップします。"
             exit 0
@@ -48,3 +53,5 @@ jobs:
           git add last_posted.json
           git commit -m "Update Newswire state"
           git push
+```
+

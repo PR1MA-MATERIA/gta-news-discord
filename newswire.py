@@ -17,12 +17,22 @@ def fetch(url):
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 GTA-News-Discord-Bot"
-        }
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 Chrome/131 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ja-JP,ja;q=0.9,en;q=0.8",
+        },
     )
 
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read().decode("utf-8")
+        data = response.read()
+
+        print("HTTP:", response.status)
+        print("取得バイト数:", len(data))
+
+        return data.decode("utf-8", errors="ignore")
 
 
 def clean_text(text):
@@ -33,66 +43,125 @@ def clean_text(text):
 
 
 def get_latest_gta_article():
+
+    print("Newswireを取得中...")
+
     html = fetch(NEWSWIRE_URL)
 
-    # Newswireの記事URLを取得
-    pattern = r'href=["\'](/jp/newswire/article/[^"\']+)["\']'
-    urls = re.findall(pattern, html)
+    print("article URLの検索中...")
 
-    # 重複削除
-    urls = list(dict.fromkeys(urls))
+    # 日本語Newswireの記事URLを取得
+    patterns = [
+        r'href=["\'](/jp/newswire/article/[^"\']+)["\']',
+        r'["\'](/jp/newswire/article/[^"\']+)["\']',
+        r'(https://www\.rockstargames\.com/jp/newswire/article/[^"\']+)',
+    ]
+
+    urls = []
+
+    for pattern in patterns:
+        found = re.findall(pattern, html)
+
+        for url in found:
+            if url not in urls:
+                urls.append(url)
+
+    print("見つかった記事URL:", len(urls))
+
+    if not urls:
+        print("記事URLが見つかりませんでした。")
+        print("Newswire HTMLに含まれる文字数:", len(html))
+
+        # GTAオンラインという文字が存在するか確認
+        if "GTAオンライン" in html:
+            print("HTML内には「GTAオンライン」が存在します。")
+        else:
+            print("HTML内に「GTAオンライン」がありません。")
+
+        return None
 
     for path in urls[:30]:
-        url = BASE_URL + path
+
+        if path.startswith("http"):
+            url = path
+        else:
+            url = BASE_URL + path
+
+        print("確認:", url)
 
         try:
             article_html = fetch(url)
 
-            # GTAオンラインの記事だけを対象にする
+            # GTAオンライン記事か確認
             if "GTAオンライン" not in article_html:
+                print("→ GTAオンラインではありません")
                 continue
 
-            # タイトルを取得
-            title_match = re.search(
-                r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
-                article_html,
-                re.IGNORECASE
-            )
+            print("→ GTAオンライン記事です")
 
-            if not title_match:
-                title_match = re.search(
-                    r'<title>(.*?)</title>',
+            # タイトル
+            title = None
+
+            patterns = [
+                r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+                r'<title>(.*?)</title>',
+            ]
+
+            for pattern in patterns:
+                match = re.search(
+                    pattern,
                     article_html,
-                    re.IGNORECASE | re.DOTALL
+                    re.IGNORECASE | re.DOTALL,
                 )
 
-            title = (
-                clean_text(title_match.group(1))
-                if title_match
-                else "GTAオンライン 新着ニュース"
-            )
+                if match:
+                    title = clean_text(match.group(1))
+                    break
 
-            # 説明文を取得
-            description_match = re.search(
-                r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\']([^"\']+)',
-                article_html,
-                re.IGNORECASE
-            )
+            if not title:
+                title = "GTAオンライン 新着ニュース"
 
+            # 説明
             description = (
-                clean_text(description_match.group(1))
-                if description_match
-                else "Rockstar Games Newswireで新しい記事が公開されました。"
+                "Rockstar Games Newswireで "
+                "GTAオンラインの新しい記事が公開されました。"
             )
 
-            # サムネイル取得
-            image_match = re.search(
+            description_patterns = [
+                r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)',
+                r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)',
+            ]
+
+            for pattern in description_patterns:
+                match = re.search(
+                    pattern,
+                    article_html,
+                    re.IGNORECASE | re.DOTALL,
+                )
+
+                if match:
+                    description = clean_text(match.group(1))
+                    break
+
+            # 画像
+            image = None
+
+            image_patterns = [
                 r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
-                article_html,
-                re.IGNORECASE
-            )
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+            ]
 
-            image = image_match.group(1) if image_match else None
+            for pattern in image_patterns:
+                match = re.search(
+                    pattern,
+                    article_html,
+                    re.IGNORECASE,
+                )
+
+                if match:
+                    image = match.group(1)
+                    break
 
             return {
                 "url": url,
@@ -102,13 +171,13 @@ def get_latest_gta_article():
             }
 
         except Exception as error:
-            print(f"記事取得エラー: {url}")
-            print(error)
+            print("記事取得エラー:", error)
 
     return None
 
 
 def load_state():
+
     if not STATE_FILE.exists():
         return None
 
@@ -116,31 +185,37 @@ def load_state():
         data = json.loads(
             STATE_FILE.read_text(encoding="utf-8")
         )
+
         return data.get("last_url")
+
     except Exception:
         return None
 
 
 def save_state(url):
+
     STATE_FILE.write_text(
         json.dumps(
-            {"last_url": url},
+            {
+                "last_url": url
+            },
             ensure_ascii=False,
-            indent=2
+            indent=2,
         ),
-        encoding="utf-8"
+        encoding="utf-8",
     )
 
 
 def send_to_discord(article):
+
     embed = {
         "title": article["title"],
         "url": article["url"],
         "description": article["description"],
         "color": 0xE67E22,
         "footer": {
-            "text": "Rockstar Games Newswire"
-        }
+            "text": "Rockstar Games Newswire",
+        },
     }
 
     if article["image"]:
@@ -150,12 +225,12 @@ def send_to_discord(article):
 
     payload = {
         "username": "GTA NEWS",
-        "embeds": [embed]
+        "embeds": [embed],
     }
 
     data = json.dumps(
         payload,
-        ensure_ascii=False
+        ensure_ascii=False,
     ).encode("utf-8")
 
     request = urllib.request.Request(
@@ -163,22 +238,23 @@ def send_to_discord(article):
         data=data,
         headers={
             "Content-Type": "application/json",
-            "User-Agent": "GTA-News-Discord-Bot"
+            "User-Agent": "GTA-News-Discord-Bot",
         },
-        method="POST"
+        method="POST",
     )
 
     with urllib.request.urlopen(request, timeout=30) as response:
-        print("Discord:", response.status)
+        print("Discord HTTP:", response.status)
 
 
 def main():
-    print("Newswireを確認しています...")
+
+    print("=== GTA NEWS BOT START ===")
 
     article = get_latest_gta_article()
 
     if not article:
-        print("GTAオンラインの記事が見つかりませんでした。")
+        print("GTAオンラインの記事を取得できませんでした。")
         return
 
     print("最新記事:")
@@ -187,26 +263,29 @@ def main():
 
     last_url = load_state()
 
-    # 初回は現在の記事を記録するだけ
     if last_url is None:
+
         save_state(article["url"])
-        print("初回実行なので投稿せず、記事を記録しました。")
+
+        print("初回実行です。")
+        print("現在の記事を記録しました。")
+        print("Discordへの投稿は行いません。")
+
         return
 
-    # 同じ記事なら何もしない
     if article["url"] == last_url:
+
         print("新しい記事はありません。")
+
         return
 
-    # 新記事
+    print("新しい記事を検出しました！")
+
     send_to_discord(article)
+
     save_state(article["url"])
 
-    print("新しい記事をDiscordへ投稿しました。")
-
-
-if __name__ == "__main__":
-    main()
+    print("Discordへの投稿完了！")
 
 
 if __name__ == "__main__":

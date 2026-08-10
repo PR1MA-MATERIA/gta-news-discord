@@ -1,189 +1,177 @@
+```python
 import os
-import re
 import json
 import urllib.request
+import urllib.parse
 from pathlib import Path
-from html import unescape
 
 WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
 
-NEWSWIRE_URL = "https://www.rockstargames.com/jp/newswire"
+GRAPHQL_URL = "https://graph.rockstargames.com"
 BASE_URL = "https://www.rockstargames.com"
 
 STATE_FILE = Path("last_posted.json")
 
+# GTA Online / GTA V 系のNewswireタグ
+# 既存のRockstar Newswire実装で使用されているID
+GTA_V_TAG_ID = 702
 
-def fetch(url):
+
+def graphql_request(query_params):
+    url = GRAPHQL_URL + "?" + urllib.parse.urlencode(query_params)
+
     request = urllib.request.Request(
         url,
+        method="POST",
         headers={
+            "Content-Type": "application/json",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 Chrome/131 Safari/537.36"
             ),
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "ja-JP,ja;q=0.9,en;q=0.8",
+            "Accept": "application/json",
         },
     )
 
     with urllib.request.urlopen(request, timeout=30) as response:
         data = response.read()
 
-        print("HTTP:", response.status)
+        print("GraphQL HTTP:", response.status)
         print("取得バイト数:", len(data))
 
-        return data.decode("utf-8", errors="ignore")
+        return json.loads(data.decode("utf-8", errors="ignore"))
 
 
-def clean_text(text):
-    text = unescape(text)
-    text = re.sub(r"<[^>]*>", "", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+def get_hash_token():
+    """
+    Rockstar NewswireのGraphQL Persisted Query用ハッシュを取得します。
 
+    現在のNewswireはブラウザ側からGraphQLの
+    NewswireListクエリを呼び出して記事一覧を取得しています。
+    """
 
-def get_latest_gta_article():
-
-    print("Newswireを取得中...")
-
-    html = fetch(NEWSWIRE_URL)
-
-    print("article URLの検索中...")
-
-    # 日本語Newswireの記事URLを取得
-    patterns = [
-        r'href=["\'](/jp/newswire/article/[^"\']+)["\']',
-        r'["\'](/jp/newswire/article/[^"\']+)["\']',
-        r'(https://www\.rockstargames\.com/jp/newswire/article/[^"\']+)',
-    ]
-
-    urls = []
-
-    for pattern in patterns:
-        found = re.findall(pattern, html)
-
-        for url in found:
-            if url not in urls:
-                urls.append(url)
-
-    print("見つかった記事URL:", len(urls))
-
-    if not urls:
-        print("記事URLが見つかりませんでした。")
-        print("Newswire HTMLに含まれる文字数:", len(html))
-
-        # GTAオンラインという文字が存在するか確認
-        if "GTAオンライン" in html:
-            print("HTML内には「GTAオンライン」が存在します。")
-        else:
-            print("HTML内に「GTAオンライン」がありません。")
-
-        return None
-
-    for path in urls[:30]:
-
-        if path.startswith("http"):
-            url = path
-        else:
-            url = BASE_URL + path
-
-        print("確認:", url)
-
-        try:
-            article_html = fetch(url)
-
-            # GTAオンライン記事か確認
-            if "GTAオンライン" not in article_html:
-                print("→ GTAオンラインではありません")
-                continue
-
-            print("→ GTAオンライン記事です")
-
-            # タイトル
-            title = None
-
-            patterns = [
-                r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
-                r'<title>(.*?)</title>',
-            ]
-
-            for pattern in patterns:
-                match = re.search(
-                    pattern,
-                    article_html,
-                    re.IGNORECASE | re.DOTALL,
-                )
-
-                if match:
-                    title = clean_text(match.group(1))
-                    break
-
-            if not title:
-                title = "GTAオンライン 新着ニュース"
-
-            # 説明
-            description = (
-                "Rockstar Games Newswireで "
-                "GTAオンラインの新しい記事が公開されました。"
-            )
-
-            description_patterns = [
-                r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)',
-                r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)',
-            ]
-
-            for pattern in description_patterns:
-                match = re.search(
-                    pattern,
-                    article_html,
-                    re.IGNORECASE | re.DOTALL,
-                )
-
-                if match:
-                    description = clean_text(match.group(1))
-                    break
-
-            # 画像
-            image = None
-
-            image_patterns = [
-                r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
-            ]
-
-            for pattern in image_patterns:
-                match = re.search(
-                    pattern,
-                    article_html,
-                    re.IGNORECASE,
-                )
-
-                if match:
-                    image = match.group(1)
-                    break
-
-            return {
-                "url": url,
-                "title": title,
-                "description": description,
-                "image": image,
-            }
-
-        except Exception as error:
-            print("記事取得エラー:", error)
-
+    # 現時点では固定ハッシュを使用せず、
+    # まずGraphQL APIが直接応答するかを確認します。
     return None
 
 
-def load_state():
+def get_latest_gta_article():
+    print("Rockstar Newswireを確認中...")
 
+    # まず現在のGraphQL APIにアクセス
+    variables = {
+        "page": 1,
+        "tagId": GTA_V_TAG_ID,
+        "metaUrl": "/newswire",
+        "locale": "ja_jp",
+    }
+
+    params = {
+        "operationName": "NewswireList",
+        "variables": json.dumps(
+            variables,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+    }
+
+    print("GraphQLへ接続中...")
+
+    try:
+        response = graphql_request(params)
+
+    except Exception as error:
+        print("GraphQL取得エラー:", error)
+        return None
+
+    print("GraphQLレスポンスを解析中...")
+
+    if response.get("errors"):
+        print("GraphQL errors:")
+        print(json.dumps(
+            response["errors"],
+            ensure_ascii=False,
+            indent=2,
+        ))
+
+        return None
+
+    data = response.get("data")
+
+    if not data:
+        print("GraphQL dataがありません。")
+        print(json.dumps(
+            response,
+            ensure_ascii=False,
+            indent=2,
+        ))
+
+        return None
+
+    posts = data.get("posts", {})
+    results = posts.get("results", [])
+
+    print("取得記事数:", len(results))
+
+    if not results:
+        print("記事が見つかりませんでした。")
+        return None
+
+    article = results[0]
+
+    article_id = article.get("id")
+    title = article.get("title")
+    relative_url = article.get("url")
+    created = article.get("created")
+
+    if not relative_url:
+        print("記事URLがありません。")
+        return None
+
+    if relative_url.startswith("http"):
+        article_url = relative_url
+    else:
+        article_url = BASE_URL + relative_url
+
+    preview = article.get("preview_images_parsed", {})
+    newswire_block = preview.get("newswire_block", {})
+    image = newswire_block.get("d16x9")
+
+    primary_tags = article.get("primary_tags", [])
+
+    tags = []
+
+    for tag in primary_tags:
+        name = tag.get("name")
+
+        if name:
+            tags.append(name)
+
+    print("最新記事:")
+    print("ID:", article_id)
+    print("タイトル:", title)
+    print("URL:", article_url)
+    print("タグ:", tags)
+
+    return {
+        "id": str(article_id),
+        "url": article_url,
+        "title": title or "GTA Online 新着ニュース",
+        "image": image,
+        "date": created,
+        "tags": tags,
+    }
+
+
+def load_state():
     if not STATE_FILE.exists():
         return None
 
     try:
         data = json.loads(
-            STATE_FILE.read_text(encoding="utf-8")
+            STATE_FILE.read_text(
+                encoding="utf-8"
+            )
         )
 
         return data.get("last_url")
@@ -193,7 +181,6 @@ def load_state():
 
 
 def save_state(url):
-
     STATE_FILE.write_text(
         json.dumps(
             {
@@ -207,18 +194,29 @@ def save_state(url):
 
 
 def send_to_discord(article):
+    description = ""
+
+    if article["tags"]:
+        description = " ".join(
+            f"`{tag}`"
+            for tag in article["tags"]
+        )
 
     embed = {
+        "author": {
+            "name": "Rockstar Games Newswire",
+            "url": "https://www.rockstargames.com/jp/newswire",
+        },
         "title": article["title"],
         "url": article["url"],
-        "description": article["description"],
+        "description": description,
         "color": 0xE67E22,
         "footer": {
             "text": "Rockstar Games Newswire",
         },
     }
 
-    if article["image"]:
+    if article.get("image"):
         embed["image"] = {
             "url": article["image"]
         }
@@ -243,28 +241,29 @@ def send_to_discord(article):
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=30) as response:
-        print("Discord HTTP:", response.status)
+    with urllib.request.urlopen(
+        request,
+        timeout=30
+    ) as response:
+
+        print(
+            "Discord HTTP:",
+            response.status
+        )
 
 
 def main():
-
     print("=== GTA NEWS BOT START ===")
 
     article = get_latest_gta_article()
 
     if not article:
-        print("GTAオンラインの記事を取得できませんでした。")
+        print("GTA Onlineの記事を取得できませんでした。")
         return
-
-    print("最新記事:")
-    print(article["title"])
-    print(article["url"])
 
     last_url = load_state()
 
     if last_url is None:
-
         save_state(article["url"])
 
         print("初回実行です。")
@@ -274,9 +273,7 @@ def main():
         return
 
     if article["url"] == last_url:
-
         print("新しい記事はありません。")
-
         return
 
     print("新しい記事を検出しました！")
@@ -290,3 +287,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```

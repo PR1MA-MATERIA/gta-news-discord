@@ -1,4 +1,4 @@
-```yaml
+
 name: GTA Newswire
 
 on:
@@ -53,5 +53,3 @@ jobs:
           git add last_posted.json
           git commit -m "Update Newswire state"
           git push
-```
-

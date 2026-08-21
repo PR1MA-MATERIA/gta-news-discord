@@ -14,7 +14,6 @@ GRAPHQL_URL = "https://graph.rockstargames.com"
 
 STATE_FILE = Path("last_posted.json")
 
-# Rockstar NewswireのGTA V / GTA Onlineカテゴリ
 GTA_V_TAG_ID = 702
 
 
@@ -80,8 +79,6 @@ def get_news_hash():
                                 captured_hash
                             )
 
-                            # ハッシュだけ取得できれば、
-                            # このリクエスト自体は不要。
                             route.abort()
                             return
 
@@ -105,7 +102,6 @@ def get_news_hash():
                 timeout=60000
             )
 
-            # JavaScriptがNewswireListを発行するまで待つ
             page.wait_for_timeout(15000)
 
         except PlaywrightTimeoutError:
@@ -230,8 +226,6 @@ def get_latest_article():
 
         return None
 
-    # PersistedQueryNotFoundの場合は
-    # hashが変更された可能性がある。
     if response.get("errors"):
 
         print(
@@ -315,7 +309,6 @@ def get_latest_article():
             + relative_url
         )
 
-    # Newswire用16:9画像
     image = None
 
     preview_images = article.get(
@@ -332,7 +325,6 @@ def get_latest_article():
         "d16x9"
     )
 
-    # タグ
     tags = []
 
     for tag in article.get(
@@ -497,7 +489,6 @@ def main():
 
     last_url = load_state()
 
-    # 初回実行
     if last_url is None:
 
         save_state(
@@ -518,7 +509,6 @@ def main():
 
         return
 
-    # 同じ記事
     if article["url"] == last_url:
 
         print(
@@ -527,7 +517,6 @@ def main():
 
         return
 
-    # 新記事
     print(
         "新しい記事を検出しました！"
     )
@@ -547,4 +536,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
+    
